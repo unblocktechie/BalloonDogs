@@ -1,13 +1,17 @@
 {
   "author": "",
   "dependencies": {
+    "@zerodev/ecdsa-validator": "^5.3.1",
+    "@zerodev/sdk": "^5.3.2",
     "blndgs-model": "^0.3.2",
     "dotenv": "^16.4.5",
     "ethers": "5.7.0",
     "logrocket": "^8.1.0",
     "node-fetch": "^3.3.2",
+    "permissionless": "^0.1.33",
     "typescript": "^5.4.3",
-    "userop": "^0.3.8"
+    "userop": "^0.3.8",
+    "viem": "^2.16.5"
   },
   "description": "Abstract State Change Expression Library",
   "devDependencies": {

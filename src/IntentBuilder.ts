@@ -2,6 +2,9 @@ import { BytesLike, ethers } from 'ethers';
 import { BUNDLER_URL, CHAIN_ID, ENTERY_POINT, FACTORY, NODE_URL } from './Constants';
 import { Client, Presets, UserOperationBuilder } from 'userop';
 import { Intent } from 'blndgs-model/dist/asset_pb';
+import { getKernelClient } from './Kernel-Utils';
+import { ENTRYPOINT_ADDRESS_V07 } from "permissionless";
+import { KERNEL_V3_1 } from "@zerodev/sdk/constants";
 
 export class IntentBuilder {
   capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -94,6 +97,83 @@ export class IntentBuilder {
 
     const reciept = await resReceipt.json();
     console.log(reciept);
+  }
+
+  async executeKernel(intents: Intent, signer: ethers.Signer): Promise<void> {
+    let ownerAddress = await signer.getAddress();
+    console.log('ownerAddress ' + ownerAddress);
+    ownerAddress = ownerAddress.substring(2, ownerAddress.length); //remove 0x value
+    const sender = intents.sender;
+    const senderAddress = sender.substring(2, sender.length); //remove 0x value
+
+    const intent = ethers.utils.toUtf8Bytes(JSON.stringify(intents));
+    const nonce = await this.getNonce(sender);
+    const initCode = await this.getInitCode(nonce, ownerAddress);
+
+    const builder = new UserOperationBuilder()
+      .useDefaults({ sender })
+      .setCallData(intent)
+      .setPreVerificationGas('0x493E0')
+      .setMaxFeePerGas('0x493E0')
+      .setMaxPriorityFeePerGas('0')
+      .setVerificationGasLimit('0x493E0')
+      .setCallGasLimit('0xC3500')
+      .setNonce(nonce)
+      .setInitCode(initCode);
+
+    const signature = await this.getSignature(signer, builder);
+    builder.setSignature(signature);
+    
+    const callDataHex = this.uint8ArrayToHex(intent);
+    const signatureHex = this.stringToHex(signature);
+
+    const kernelClient = await getKernelClient(ENTRYPOINT_ADDRESS_V07, KERNEL_V3_1);
+
+    const res = await kernelClient.sendUserOperation({
+      userOperation: {
+        sender: `0x${senderAddress}`,
+        nonce,
+        callData: `0x${callDataHex}`,
+        callGasLimit: BigInt(builder.getCallGasLimit() as number),
+        verificationGasLimit: BigInt(builder.getVerificationGasLimit() as number),
+        preVerificationGas: BigInt(builder.getPreVerificationGas() as number),
+        maxFeePerGas: BigInt(builder.getMaxFeePerGas() as number),
+        maxPriorityFeePerGas: BigInt(builder.getMaxPriorityFeePerGas() as number),
+        signature: `0x${signatureHex}`
+      }
+    });
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const solvedHash = (res as any).userOpHash.solved_hash;
+    
+    const headers = {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    };
+
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'eth_getUserOperationReceipt',
+      params: [solvedHash],
+    });
+
+    const resReceipt = await this.fetchWithNodeFetch(BUNDLER_URL, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const reciept = await resReceipt.json();
+    console.log(reciept);
+  }
+
+  private uint8ArrayToHex(uint8Array: Uint8Array): string {
+    return Array.from(uint8Array, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  private stringToHex(str: string): string {
+    return Array.from(str, char => char.charCodeAt(0).toString(16).padStart(2, '0')).join('');
   }
 
   private async getInitCode(nonce: string, ownerAddress: string) {
